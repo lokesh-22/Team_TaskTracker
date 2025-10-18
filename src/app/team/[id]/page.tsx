@@ -38,13 +38,20 @@ export default function TeamPage() {
   const [timeline, setTimeline] = useState<any[]>([]);
   const [timelineLoading, setTimelineLoading] = useState(false);
   const [timelineError, setTimelineError] = useState<string | null>(null);
-  // Fetch timeline for the team
+  const [taskStatusFilter, setTaskStatusFilter] = useState<string>('All');
+  
+  // Fetch timeline for the team with polling for live updates
   useEffect(() => {
     if (!teamId || !user) return;
-    const access = localStorage.getItem('access');
-    setTimelineLoading(true);
-    setTimelineError(null);
-      (async () => {
+    
+    const fetchTimeline = async () => {
+      // Don't show loading spinner on polling refreshes, only on initial load
+      if (timeline.length === 0) {
+        setTimelineLoading(true);
+      }
+      setTimelineError(null);
+      
+      try {
         let res = await secureFetch(`http://127.0.0.1:8000/api/teams/${teamId}/timeline/`);
         if (!res.ok) {
           setTimelineError('Failed to fetch timeline');
@@ -54,7 +61,20 @@ export default function TeamPage() {
         const data = await res.json();
         setTimeline(data);
         setTimelineLoading(false);
-      })();
+      } catch (err) {
+        setTimelineError('Network error');
+        setTimelineLoading(false);
+      }
+    };
+    
+    // Initial fetch
+    fetchTimeline();
+    
+    // Poll every 10 seconds for live updates
+    const pollInterval = setInterval(fetchTimeline, 10000);
+    
+    // Cleanup interval on unmount or dependency change
+    return () => clearInterval(pollInterval);
   }, [teamId, user, taskSuccess, updateTaskId]);
 
   useEffect(() => {
@@ -102,14 +122,23 @@ export default function TeamPage() {
       })();
   }, [teamId]);
 
-  // Fetch tasks for the team
+  // Fetch tasks for the team with polling for live updates
   useEffect(() => {
     if (!teamId) return;
-    const access = localStorage.getItem('access');
-    setTasksLoading(true);
-    setTasksError(null);
-      (async () => {
-        let res = await secureFetch(`http://127.0.0.1:8000/api/tasks/?team=${teamId}`);
+    
+    const fetchTasks = async () => {
+      // Don't show loading spinner on polling refreshes, only on initial load or filter change
+      if (tasks.length === 0) {
+        setTasksLoading(true);
+      }
+      setTasksError(null);
+      
+      try {
+        let url = `http://127.0.0.1:8000/api/tasks/?team=${teamId}`;
+        if (taskStatusFilter !== 'All') {
+          url += `&status=${encodeURIComponent(taskStatusFilter)}`;
+        }
+        let res = await secureFetch(url);
         if (!res.ok) {
           setTasksError('Failed to fetch tasks');
           setTasksLoading(false);
@@ -118,8 +147,21 @@ export default function TeamPage() {
         const data = await res.json();
         setTasks(data);
         setTasksLoading(false);
-      })();
-  }, [teamId, taskSuccess, updateTaskId]);
+      } catch (err) {
+        setTasksError('Network error');
+        setTasksLoading(false);
+      }
+    };
+    
+    // Initial fetch
+    fetchTasks();
+    
+    // Poll every 10 seconds for live updates
+    const pollInterval = setInterval(fetchTasks, 10000);
+    
+    // Cleanup interval on unmount or dependency change
+    return () => clearInterval(pollInterval);
+  }, [teamId, taskSuccess, updateTaskId, taskStatusFilter]);
 
   const handleInvite = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -395,7 +437,22 @@ export default function TeamPage() {
         </div>
         {/* Tasks sidebar right */}
         <div className="w-[400px] min-w-[300px] max-w-[500px] h-full border-l border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-900 p-6 overflow-y-auto flex flex-col">
-          <h2 className="text-xl font-bold mb-4 text-green-700 dark:text-green-300">Team Tasks</h2>
+          <div className="flex items-center justify-between mb-4">
+            <h2 className="text-xl font-bold text-green-700 dark:text-green-300">Team Tasks</h2>
+          </div>
+          <div className="mb-4">
+            <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">Filter by Status</label>
+            <select
+              value={taskStatusFilter}
+              onChange={e => setTaskStatusFilter(e.target.value)}
+              className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-green-500"
+            >
+              <option value="All">All</option>
+              <option value="Pending">Pending</option>
+              <option value="In Progress">In Progress</option>
+              <option value="Done">Done</option>
+            </select>
+          </div>
           {tasksLoading && <div className="text-xs text-gray-500 dark:text-gray-400">Loading tasks...</div>}
           {tasksError && <div className="text-red-600 dark:text-red-400 mb-2">{tasksError}</div>}
           <ul className="flex flex-col gap-4 w-full">

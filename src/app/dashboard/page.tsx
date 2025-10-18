@@ -24,8 +24,8 @@ export default function DashboardPage() {
   const [memberTeamsError, setMemberTeamsError] = useState<string | null>(null);
   const [invitationsError, setInvitationsError] = useState<string | null>(null);
 
-  const fetchTeams = useCallback(async (userId: string) => {
-    setTeamsLoading(true);
+  const fetchTeams = useCallback(async (userId: string, silent = false) => {
+    if (!silent) setTeamsLoading(true);
     setTeamsError(null);
     try {
       const res = await secureFetch(`http://127.0.0.1:8000/api/teams/?created_by=${userId}`);
@@ -43,8 +43,8 @@ export default function DashboardPage() {
     }
   }, []);
 
-  const fetchMemberTeams = useCallback(async (userId: string) => {
-    setMemberTeamsLoading(true);
+  const fetchMemberTeams = useCallback(async (userId: string, silent = false) => {
+    if (!silent) setMemberTeamsLoading(true);
     setMemberTeamsError(null);
     try {
       const res = await secureFetch(`http://127.0.0.1:8000/api/teams/?member=${userId}`);
@@ -62,8 +62,8 @@ export default function DashboardPage() {
     }
   }, []);
 
-  const fetchInvitations = useCallback(async () => {
-    setInvitationsLoading(true);
+  const fetchInvitations = useCallback(async (silent = false) => {
+    if (!silent) setInvitationsLoading(true);
     setInvitationsError(null);
     try {
       const res = await secureFetch('http://127.0.0.1:8000/api/invitations/');
@@ -108,12 +108,27 @@ export default function DashboardPage() {
     const userObj = JSON.parse(userStr);
     setUser(userObj);
     setRole(userObj.role);
+    
+    // Initial fetch
     if (userObj.role === 'Admin') {
       fetchTeams(userObj.id);
     } else if (userObj.role === 'Member') {
       fetchMemberTeams(userObj.id);
       fetchInvitations();
     }
+    
+    // Set up polling for live updates every 15 seconds
+    const pollInterval = setInterval(() => {
+      if (userObj.role === 'Admin') {
+        fetchTeams(userObj.id, true); // silent refresh (no loading spinner)
+      } else if (userObj.role === 'Member') {
+        fetchMemberTeams(userObj.id, true); // silent refresh
+        fetchInvitations(true); // silent refresh
+      }
+    }, 15000);
+    
+    // Cleanup interval on unmount
+    return () => clearInterval(pollInterval);
   }, [router, fetchTeams, fetchMemberTeams, fetchInvitations]);
 
   const handleLogout = () => {
