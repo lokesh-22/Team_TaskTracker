@@ -73,7 +73,7 @@ export default function LoginPage() {
         <form className="mt-8 space-y-6" onSubmit={handleSubmit}>
           {/* Show error message if exists */}
           {error && (
-            <div className="mb-4 text-center text-sm text-red-600 dark:text-red-400">
+            <div className="mb-4 text-center text-sm text-red-600 dark:text-red-400" aria-live="assertive">
               {error}
             </div>
           )}
@@ -137,7 +137,7 @@ export default function LoginPage() {
             <button
               type="submit"
               disabled={isLoading}
-              className="group relative w-full flex justify-center py-2.5 px-4 border border-transparent text-sm font-medium rounded-lg text-white bg-indigo-600 hover:bg-indigo-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500 disabled:opacity-50 disabled:cursor-not-allowed transition-all duration-200"
+              className="group relative w-full flex justify-center py-2.5 px-4 border border-transparent text-sm font-medium rounded-lg text-white bg-indigo-600 hover:bg-indigo-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500 disabled:opacity-50 disabled:cursor-not-allowed transition-all duration-200 animate-fade-in"
             >
               {isLoading ? (
                 <span className="flex items-center">
@@ -151,6 +151,15 @@ export default function LoginPage() {
                 'Sign in'
               )}
             </button>
+            <style jsx>{`
+              .animate-fade-in {
+                animation: fadeIn 1s ease;
+              }
+              @keyframes fadeIn {
+                from { opacity: 0; transform: translateY(20px); }
+                to { opacity: 1; transform: translateY(0); }
+              }
+            `}</style>
           </div>
 
           <div className="text-center">
