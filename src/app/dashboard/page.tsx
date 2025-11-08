@@ -61,7 +61,7 @@ export default function DashboardPage() {
       setMemberTeamsLoading(false);
     }
   }, []);
-
+    
   const fetchInvitations = useCallback(async (silent = false) => {
     if (!silent) setInvitationsLoading(true);
     setInvitationsError(null);
@@ -200,7 +200,6 @@ export default function DashboardPage() {
           <div className="mb-6 text-right text-md text-gray-600 dark:text-gray-400">
             Role: <span className="font-bold text-purple-700 dark:text-purple-300">{role}</span>
           </div>
-
           {/* Admin Section */}
           {role === 'Admin' && (
             <div className="bg-white dark:bg-gray-900 rounded-xl shadow-lg p-6 mb-6 border border-gray-200 dark:border-gray-700">

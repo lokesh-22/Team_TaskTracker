@@ -2,16 +2,115 @@
 'use client';
 import { secureFetch } from '@/utils/secureFetch';
 import { useEffect, useState } from 'react';
+// Task details modal and comment form
+
 import { useRouter, useParams } from 'next/navigation';
 import Link from 'next/link';
 // Utility: Refresh access token using refresh token
 
 
 export default function TeamPage() {
+  // Task details modal state
+  const [showTaskDetails, setShowTaskDetails] = useState(false);
+  const [selectedTask, setSelectedTask] = useState<any>(null);
+  const [taskDetailsLoading, setTaskDetailsLoading] = useState(false);
+  const [taskDetailsError, setTaskDetailsError] = useState<string | null>(null);
+  const [comments, setComments] = useState<any[]>([]);
+  const [addCommentOpen, setAddCommentOpen] = useState(false);
+  const [commentText, setCommentText] = useState('');
+  const [addCommentLoading, setAddCommentLoading] = useState(false);
+  const [addCommentError, setAddCommentError] = useState<string | null>(null);
+  // Fetch task details and comments
+  const openTaskDetails = async (taskId: string) => {
+    setShowTaskDetails(true);
+    setTaskDetailsLoading(true);
+    setTaskDetailsError(null);
+    setSelectedTask(null);
+    setComments([]);
+    try {
+      const res = await secureFetch(`http://127.0.0.1:8000/api/tasks/${taskId}/`);
+      if (!res.ok) {
+        setTaskDetailsError('Failed to fetch task details');
+        setTaskDetailsLoading(false);
+        return;
+      }
+      const data = await res.json();
+      setSelectedTask(data);
+      
+      // Fetch commenter details for each comment
+      const commentsWithDetails = await Promise.all(
+        (data.comments || []).map(async (comment: any) => {
+          // Check if commenter details are already in memberDetails
+          if (memberDetails[comment.commenter]) {
+            return { ...comment, commenterName: memberDetails[comment.commenter].name };
+          }
+          // If not, fetch from API
+          try {
+            const userRes = await secureFetch(`http://127.0.0.1:8000/api/users/${comment.commenter}/`);
+            if (userRes.ok) {
+              const userData = await userRes.json();
+              return { ...comment, commenterName: userData.name };
+            }
+          } catch (err) {
+            // If fetch fails, use commenter ID as fallback
+          }
+          return { ...comment, commenterName: comment.commenter };
+        })
+      );
+      
+      setComments(commentsWithDetails);
+      setTaskDetailsLoading(false);
+    } catch (err) {
+      setTaskDetailsError('Network error');
+      setTaskDetailsLoading(false);
+    }
+  };
+
+  // Add comment to task
+  const handleAddComment = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!selectedTask) return;
+    setAddCommentLoading(true);
+    setAddCommentError(null);
+    try {
+      const res = await secureFetch(`http://127.0.0.1:8000/api/tasks/${selectedTask.id}/comments/`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          comment: commentText,
+        }),
+      });
+      if (!res.ok) {
+        setAddCommentError('Failed to add comment');
+        setAddCommentLoading(false);
+        return;
+      }
+      const newComment = await res.json();
+      
+      // Add commenter name to the new comment
+      const commentWithName = {
+        ...newComment,
+        commenterName: user?.name || memberDetails[newComment.commenter]?.name || newComment.commenter
+      };
+      
+      setComments([...comments, commentWithName]);
+      setCommentText('');
+      setAddCommentOpen(false);
+      setAddCommentLoading(false);
+    } catch (err) {
+      setAddCommentError('Network error');
+      setAddCommentLoading(false);
+    }
+  };
+
   const router = useRouter();
   const params = useParams();
   const teamId = params?.id as string;
+  const [user, setUser] = useState<any>(null);
   const [team, setTeam] = useState<any>(null);
+  const [memberDetails, setMemberDetails] = useState<{[key: string]: any}>({});
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [showInviteModal, setShowInviteModal] = useState(false);
@@ -19,8 +118,6 @@ export default function TeamPage() {
   const [inviteLoading, setInviteLoading] = useState(false);
   const [inviteError, setInviteError] = useState<string | null>(null);
   const [inviteSuccess, setInviteSuccess] = useState<string | null>(null);
-  const [user, setUser] = useState<any>(null);
-  const [memberDetails, setMemberDetails] = useState<{[key: string]: any}>({});
   const [showTaskModal, setShowTaskModal] = useState(false);
   const [taskTitle, setTaskTitle] = useState('');
   const [taskDesc, setTaskDesc] = useState('');
@@ -32,27 +129,26 @@ export default function TeamPage() {
   const [tasks, setTasks] = useState<any[]>([]);
   const [tasksLoading, setTasksLoading] = useState(false);
   const [tasksError, setTasksError] = useState<string | null>(null);
-  const [updateTaskId, setUpdateTaskId] = useState<string | null>(null);
-  const [updateTaskStatus, setUpdateTaskStatus] = useState('');
   const [updateLoading, setUpdateLoading] = useState(false);
+  const [updateTaskId, setUpdateTaskId] = useState<string | null>(null);
+  const [updateTaskStatus, setUpdateTaskStatus] = useState<string | null>(null);
+  const [taskStatusFilter, setTaskStatusFilter] = useState('All');
   const [timeline, setTimeline] = useState<any[]>([]);
   const [timelineLoading, setTimelineLoading] = useState(false);
   const [timelineError, setTimelineError] = useState<string | null>(null);
-  const [taskStatusFilter, setTaskStatusFilter] = useState<string>('All');
-  
-  // Fetch timeline for the team with polling for live updates
+
+  // Fetch timeline with polling for live updates
   useEffect(() => {
-    if (!teamId || !user) return;
+    if (!teamId || !user?.id || !team?.members?.includes(user?.id)) return;
     
     const fetchTimeline = async () => {
-      // Don't show loading spinner on polling refreshes, only on initial load
       if (timeline.length === 0) {
         setTimelineLoading(true);
       }
       setTimelineError(null);
       
       try {
-        let res = await secureFetch(`http://127.0.0.1:8000/api/teams/${teamId}/timeline/`);
+        const res = await secureFetch(`http://127.0.0.1:8000/api/teams/${teamId}/timeline/`);
         if (!res.ok) {
           setTimelineError('Failed to fetch timeline');
           setTimelineLoading(false);
@@ -75,7 +171,7 @@ export default function TeamPage() {
     
     // Cleanup interval on unmount or dependency change
     return () => clearInterval(pollInterval);
-  }, [teamId, user, taskSuccess, updateTaskId]);
+  }, [teamId, user, team, taskSuccess, updateTaskId]);
 
   useEffect(() => {
     const userStr = localStorage.getItem('user');
@@ -456,32 +552,263 @@ export default function TeamPage() {
           {tasksLoading && <div className="text-xs text-gray-500 dark:text-gray-400">Loading tasks...</div>}
           {tasksError && <div className="text-red-600 dark:text-red-400 mb-2">{tasksError}</div>}
           <ul className="flex flex-col gap-4 w-full">
-            {tasks.map(task => (
-              <li key={task.id} className="bg-green-50 dark:bg-green-900 p-4 rounded-lg shadow-md flex flex-col gap-2">
-                <div>
-                  <div className="font-semibold text-lg text-green-800 dark:text-green-200">{task.title}</div>
-                  <div className="text-sm text-gray-700 dark:text-gray-300 mb-2">{task.description}</div>
-                  <div className="text-xs text-gray-500 dark:text-gray-400 mb-1">Assigned to: {memberDetails[task.assigned_to]?.name || 'Unassigned'}</div>
-                  <div className="text-xs text-gray-500 dark:text-gray-400">Status: <span className="font-bold">{task.status}</span></div>
-                </div>
-                <div className="flex flex-col gap-2">
-                  <select
-                    value={task.status}
-                    onChange={e => handleUpdateTask(task.id, e.target.value)}
-                    className="px-3 py-1 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-white focus:outline-none"
-                    disabled={updateLoading}
-                  >
-                    <option value="Pending">Pending</option>
-                    <option value="In Progress">In Progress</option>
-                    <option value="Done">Done</option>
-                  </select>
-                </div>
-              </li>
-            ))}
+            {tasks.map(task => {
+              return (
+                <li key={task.id} className="bg-green-50 dark:bg-green-900 p-4 rounded-lg shadow-md flex flex-col gap-2">
+                  <div>
+                    <div className="font-semibold text-lg text-green-800 dark:text-green-200">{task.title}</div>
+                    <div className="text-sm text-gray-700 dark:text-gray-300 mb-2">{task.description}</div>
+                    <div className="text-xs text-gray-500 dark:text-gray-400 mb-1">Assigned to: {memberDetails[task.assigned_to]?.name || 'Unassigned'}</div>
+                    <div className="text-xs text-gray-500 dark:text-gray-400">Status: <span className="font-bold">{task.status}</span></div>
+                  </div>
+                  <div className="flex flex-row gap-2 items-center">
+                    <select
+                      value={task.status}
+                      onChange={e => handleUpdateTask(task.id, e.target.value)}
+                      className="px-3 py-1 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-white focus:outline-none"
+                      disabled={updateLoading}
+                    >
+                      <option value="Pending">Pending</option>
+                      <option value="In Progress">In Progress</option>
+                      <option value="Done">Done</option>
+                    </select>
+                    <button
+                      className="ml-2 px-2 py-1 bg-blue-600 text-white rounded hover:bg-blue-700 text-xs"
+                      onClick={() => openTaskDetails(task.id)}
+                    >
+                      View Details
+                    </button>
+                  </div>
+                </li>
+              );
+            })}
             {(!tasksLoading && tasks.length === 0) && (
               <li className="text-center text-gray-500 dark:text-gray-400">No tasks for this team yet.</li>
             )}
           </ul>
+
+          {/* Task Details Modal */}
+          {showTaskDetails && (
+            <div className="fixed inset-0 z-50 flex items-center justify-center bg-black bg-opacity-40">
+              <div className="bg-white dark:bg-gray-800 p-6 rounded-lg shadow-xl w-full max-w-lg relative">
+                <button
+                  className="absolute top-2 right-2 text-gray-500 hover:text-gray-700 dark:hover:text-gray-300"
+                  onClick={() => { setShowTaskDetails(false); setSelectedTask(null); setComments([]); setAddCommentOpen(false); setAddCommentError(null); }}
+                  aria-label="Close"
+                >
+                  &times;
+                </button>
+                {taskDetailsLoading ? (
+                  <div className="text-center text-gray-500 dark:text-gray-400">Loading...</div>
+                ) : taskDetailsError ? (
+                  <div className="text-red-600 dark:text-red-400 mb-2">{taskDetailsError}</div>
+                ) : selectedTask && (
+                  <>
+                    <h3 className="text-xl font-bold mb-2 text-green-700 dark:text-green-300">{selectedTask.title}</h3>
+                    <div className="mb-2 text-gray-700 dark:text-gray-300">{selectedTask.description}</div>
+                    <div className="mb-1 text-xs text-gray-500 dark:text-gray-400">Assigned to: {memberDetails[selectedTask.assigned_to]?.name || 'Unassigned'}</div>
+                    <div className="mb-1 text-xs text-gray-500 dark:text-gray-400">Status: <span className="font-bold">{selectedTask.status}</span></div>
+                    <div className="mb-1 text-xs text-gray-500 dark:text-gray-400">Created: {new Date(selectedTask.created_at).toLocaleString()}</div>
+                    <div className="mb-4 text-xs text-gray-500 dark:text-gray-400">Last updated: {new Date(selectedTask.updated_at).toLocaleString()}</div>
+                    <h4 className="font-semibold mb-2 text-indigo-700 dark:text-indigo-300">Comments</h4>
+                    <ul className="mb-2 max-h-40 overflow-y-auto flex flex-col gap-2">
+                      {comments.length === 0 && <li className="text-gray-500 dark:text-gray-400 text-sm">No comments yet.</li>}
+                      {comments.map((c, idx) => (
+                        <li key={idx} className="bg-gray-100 dark:bg-gray-700 p-2 rounded">
+                          <div className="text-sm text-gray-900 dark:text-gray-100">{c.comment}</div>
+                          <div className="text-xs text-gray-500 dark:text-gray-400 mt-1">By: {c.commenter_name || (c.user && (c.user.name || c.user.full_name || c.user.email)) || c.user_email || 'Unknown'} &middot; {new Date(c.timestamp).toLocaleString()}</div>
+                        </li>
+                      ))}
+                    </ul>
+                    {addCommentOpen ? (
+                      <form onSubmit={handleAddComment} className="flex flex-col gap-2 mt-2">
+                        <textarea
+                          value={commentText}
+                          onChange={e => setCommentText(e.target.value)}
+                          required
+                          className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-white focus:outline-none"
+                          placeholder="Write your comment..."
+                        />
+                        {addCommentError && <div className="text-red-600 dark:text-red-400 text-xs">{addCommentError}</div>}
+                        <div className="flex gap-2">
+                          <button
+                            type="submit"
+                            disabled={addCommentLoading}
+                            className="py-1 px-4 bg-green-600 hover:bg-green-700 text-white rounded-lg font-medium transition-colors disabled:opacity-50 text-sm"
+                          >
+                            {addCommentLoading ? 'Adding...' : 'Add Comment'}
+                          </button>
+                          <button
+                            type="button"
+                            className="py-1 px-4 bg-gray-300 hover:bg-gray-400 text-gray-800 rounded-lg font-medium transition-colors text-sm"
+                            onClick={() => { setAddCommentOpen(false); setAddCommentError(null); }}
+                          >
+                            Cancel
+                          </button>
+                        </div>
+                      </form>
+                    ) : (
+                      <button
+                        className="mt-2 py-1 px-4 bg-blue-600 hover:bg-blue-700 text-white rounded-lg font-medium transition-colors text-sm"
+                        onClick={() => setAddCommentOpen(true)}
+                      >
+                        Add Comment
+                      </button>
+                    )}
+                  </>
+                )}
+              </div>
+            </div>
+          )}
+
+          {/* Task Details Modal */}
+          {showTaskDetails && (
+            <div className="fixed inset-0 z-50 flex items-center justify-center bg-black bg-opacity-40">
+              <div className="bg-white dark:bg-gray-800 p-6 rounded-lg shadow-xl w-full max-w-lg relative">
+                <button
+                  className="absolute top-2 right-2 text-gray-500 hover:text-gray-700 dark:hover:text-gray-300"
+                  onClick={() => { setShowTaskDetails(false); setSelectedTask(null); setComments([]); setAddCommentOpen(false); setAddCommentError(null); }}
+                  aria-label="Close"
+                >
+                  &times;
+                </button>
+                {taskDetailsLoading ? (
+                  <div className="text-center text-gray-500 dark:text-gray-400">Loading...</div>
+                ) : taskDetailsError ? (
+                  <div className="text-red-600 dark:text-red-400 mb-2">{taskDetailsError}</div>
+                ) : selectedTask && (
+                  <>
+                    <h3 className="text-xl font-bold mb-2 text-green-700 dark:text-green-300">{selectedTask.title}</h3>
+                    <div className="mb-2 text-gray-700 dark:text-gray-300">{selectedTask.description}</div>
+                    <div className="mb-1 text-xs text-gray-500 dark:text-gray-400">Assigned to: {memberDetails[selectedTask.assigned_to]?.name || 'Unassigned'}</div>
+                    <div className="mb-1 text-xs text-gray-500 dark:text-gray-400">Status: <span className="font-bold">{selectedTask.status}</span></div>
+                    <div className="mb-1 text-xs text-gray-500 dark:text-gray-400">Created: {new Date(selectedTask.created_at).toLocaleString()}</div>
+                    <div className="mb-4 text-xs text-gray-500 dark:text-gray-400">Last updated: {new Date(selectedTask.updated_at).toLocaleString()}</div>
+                    <h4 className="font-semibold mb-2 text-indigo-700 dark:text-indigo-300">Comments</h4>
+                    <ul className="mb-2 max-h-40 overflow-y-auto flex flex-col gap-2">
+                      {comments.length === 0 && <li className="text-gray-500 dark:text-gray-400 text-sm">No comments yet.</li>}
+                      {comments.map((c, idx) => (
+                        <li key={idx} className="bg-gray-100 dark:bg-gray-700 p-2 rounded">
+                          <div className="text-sm text-gray-900 dark:text-gray-100">{c.comment}</div>
+                          <div className="text-xs text-gray-500 dark:text-gray-400 mt-1">By: {memberDetails[c.commenter]?.name || c.commenter || 'User'} &middot; {new Date(c.timestamp).toLocaleString()}</div>
+                        </li>
+                      ))}
+                    </ul>
+                    {addCommentOpen ? (
+                      <form onSubmit={handleAddComment} className="flex flex-col gap-2 mt-2">
+                        <textarea
+                          value={commentText}
+                          onChange={e => setCommentText(e.target.value)}
+                          required
+                          className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-white focus:outline-none"
+                          placeholder="Write your comment..."
+                        />
+                        {addCommentError && <div className="text-red-600 dark:text-red-400 text-xs">{addCommentError}</div>}
+                        <div className="flex gap-2">
+                          <button
+                            type="submit"
+                            disabled={addCommentLoading}
+                            className="py-1 px-4 bg-green-600 hover:bg-green-700 text-white rounded-lg font-medium transition-colors disabled:opacity-50 text-sm"
+                          >
+                            {addCommentLoading ? 'Adding...' : 'Add Comment'}
+                          </button>
+                          <button
+                            type="button"
+                            className="py-1 px-4 bg-gray-300 hover:bg-gray-400 text-gray-800 rounded-lg font-medium transition-colors text-sm"
+                            onClick={() => { setAddCommentOpen(false); setAddCommentError(null); }}
+                          >
+                            Cancel
+                          </button>
+                        </div>
+                      </form>
+                    ) : (
+                      <button
+                        className="mt-2 py-1 px-4 bg-blue-600 hover:bg-blue-700 text-white rounded-lg font-medium transition-colors text-sm"
+                        onClick={() => setAddCommentOpen(true)}
+                      >
+                        Add Comment
+                      </button>
+                    )}
+                  </>
+                )}
+              </div>
+            </div>
+          )}
+
+          {/* Task Details Modal */}
+          {showTaskDetails && (
+            <div className="fixed inset-0 z-50 flex items-center justify-center bg-black bg-opacity-40">
+              <div className="bg-white dark:bg-gray-800 p-6 rounded-lg shadow-xl w-full max-w-lg relative">
+                <button
+                  className="absolute top-2 right-2 text-gray-500 hover:text-gray-700 dark:hover:text-gray-300"
+                  onClick={() => { setShowTaskDetails(false); setSelectedTask(null); setComments([]); setAddCommentOpen(false); setAddCommentError(null); }}
+                  aria-label="Close"
+                >
+                  &times;
+                </button>
+                {taskDetailsLoading ? (
+                  <div className="text-center text-gray-500 dark:text-gray-400">Loading...</div>
+                ) : taskDetailsError ? (
+                  <div className="text-red-600 dark:text-red-400 mb-2">{taskDetailsError}</div>
+                ) : selectedTask && (
+                  <>
+                    <h3 className="text-xl font-bold mb-2 text-green-700 dark:text-green-300">{selectedTask.title}</h3>
+                    <div className="mb-2 text-gray-700 dark:text-gray-300">{selectedTask.description}</div>
+                    <div className="mb-1 text-xs text-gray-500 dark:text-gray-400">Assigned to: {memberDetails[selectedTask.assigned_to]?.name || 'Unassigned'}</div>
+                    <div className="mb-1 text-xs text-gray-500 dark:text-gray-400">Status: <span className="font-bold">{selectedTask.status}</span></div>
+                    <div className="mb-1 text-xs text-gray-500 dark:text-gray-400">Created: {new Date(selectedTask.created_at).toLocaleString()}</div>
+                    <div className="mb-4 text-xs text-gray-500 dark:text-gray-400">Last updated: {new Date(selectedTask.updated_at).toLocaleString()}</div>
+                    <h4 className="font-semibold mb-2 text-indigo-700 dark:text-indigo-300">Comments</h4>
+                    <ul className="mb-2 max-h-40 overflow-y-auto flex flex-col gap-2">
+                      {comments.length === 0 && <li className="text-gray-500 dark:text-gray-400 text-sm">No comments yet.</li>}
+                      {comments.map((c, idx) => (
+                        <li key={idx} className="bg-gray-100 dark:bg-gray-700 p-2 rounded">
+                          <div className="text-sm text-gray-900 dark:text-gray-100">{c.comment}</div>
+                          <div className="text-xs text-gray-500 dark:text-gray-400 mt-1">By: {c.commenterName || 'User'} &middot; {new Date(c.timestamp).toLocaleString()}</div>
+                        </li>
+                      ))}
+                    </ul>
+                    {addCommentOpen ? (
+                      <form onSubmit={handleAddComment} className="flex flex-col gap-2 mt-2">
+                        <textarea
+                          value={commentText}
+                          onChange={e => setCommentText(e.target.value)}
+                          required
+                          className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-white focus:outline-none"
+                          placeholder="Write your comment..."
+                        />
+                        {addCommentError && <div className="text-red-600 dark:text-red-400 text-xs">{addCommentError}</div>}
+                        <div className="flex gap-2">
+                          <button
+                            type="submit"
+                            disabled={addCommentLoading}
+                            className="py-1 px-4 bg-green-600 hover:bg-green-700 text-white rounded-lg font-medium transition-colors disabled:opacity-50 text-sm"
+                          >
+                            {addCommentLoading ? 'Adding...' : 'Add Comment'}
+                          </button>
+                          <button
+                            type="button"
+                            className="py-1 px-4 bg-gray-300 hover:bg-gray-400 text-gray-800 rounded-lg font-medium transition-colors text-sm"
+                            onClick={() => { setAddCommentOpen(false); setAddCommentError(null); }}
+                          >
+                            Cancel
+                          </button>
+                        </div>
+                      </form>
+                    ) : (
+                      <button
+                        className="mt-2 py-1 px-4 bg-blue-600 hover:bg-blue-700 text-white rounded-lg font-medium transition-colors text-sm"
+                        onClick={() => setAddCommentOpen(true)}
+                      >
+                        Add Comment
+                      </button>
+                    )}
+                  </>
+                )}
+              </div>
+            </div>
+          )}
+           
         </div>
       </div>
     </div>
